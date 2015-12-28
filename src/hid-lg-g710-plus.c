@@ -14,6 +14,14 @@
  * any later version.
  */
 
+
+/*
+ * This version of the G710 driver utilizes the M keys to alter how the G keys
+ * function, resulting in a total of 24 'inputs'. These are mapped to Fn keys,
+ * from F1 to F24.
+ */
+
+
 #include <linux/hid.h>
 #include <linux/input.h>
 #include <linux/device.h>
@@ -26,7 +34,7 @@
 
 #define USB_DEVICE_ID_LOGITECH_KEYBOARD_G710_PLUS 0xc24d
 
-// 20 seeconds timeout
+// 20 seconds timeout
 #define WAIT_TIME_OUT 20000
 
 #define LOGITECH_KEY_MAP_SIZE 16
@@ -36,18 +44,32 @@ static const u8 g710_plus_key_map[LOGITECH_KEY_MAP_SIZE] = {
     0, /* unused */
     0, /* unused */
     0, /* unused */
-    KEY_F13, /* M1 */
-    KEY_F14, /* M2 */
-    KEY_F15, /* M3 */
-    KEY_F16, /* MR */
-    KEY_F17, /* G1 */
-    KEY_F18, /* G2 */
-    KEY_F19, /* G3 */
-    KEY_F20, /* G4 */
-    KEY_F21, /* G5 */
-    KEY_F22, /* G6 */
+
+	// These values are converted to Fn keys in extra_key_event()
+
+    1, /* M1 */
+    2, /* M2 */
+    3, /* M3 */
+    4, /* MR */
+    5, /* G1 */
+    6, /* G2 */
+    7, /* G3 */
+    8, /* G4 */
+    9, /* G5 */
+    10, /* G6 */
+
     0, /* unused */
     0, /* unused */
+};
+
+// Assume these values aren't in a straight line
+static const u8 f_button_map[24] = {
+	KEY_F1,  KEY_F2,  KEY_F3,  KEY_F4,
+	KEY_F5,  KEY_F6,  KEY_F7,  KEY_F8,
+	KEY_F9,  KEY_F10, KEY_F11, KEY_F12,
+	KEY_F13, KEY_F14, KEY_F15, KEY_F16,
+	KEY_F17, KEY_F18, KEY_F19, KEY_F20,
+	KEY_F21, KEY_F22, KEY_F23, KEY_F24,
 };
 
 /* Convenience macros */
@@ -88,18 +110,32 @@ static struct attribute *lg_g710_plus_attrs[] = {
         NULL,
 };
 
+static unsigned int lg_g710_plus_m_state = 0;
+
 static int lg_g710_plus_extra_key_event(struct hid_device *hdev, struct hid_report *report, u8 *data, int size) {
     u8 i;
     u16 keys_pressed;
+	char macro_buf[2] = {'0','\0'};
     struct lg_g710_plus_data* g710_data = lg_g710_plus_get_data(hdev);
     if (g710_data == NULL || size < 3 || data[0] != 3) {
         return 1; /* cannot handle the event */
     }
 
-    keys_pressed= data[1] << 8 | data[2];
+    keys_pressed = data[1] << 8 | data[2];
     for (i = 0; i < LOGITECH_KEY_MAP_SIZE; i++) {
         if (g710_plus_key_map[i] != 0 && (BIT_AT(keys_pressed, i) != BIT_AT(g710_data->macro_button_state, i))) {
-            input_report_key(g710_data->input_dev, g710_plus_key_map[i], BIT_AT(keys_pressed, i) != 0);
+			if (g710_plus_key_map[i] < 5) { /* handle M keys */
+				if (BIT_AT(keys_pressed, i)) { /* only handle key presses */
+					lg_g710_plus_m_state = g710_plus_key_map[i] - 1;
+					if (lg_g710_plus_m_state == 3) { /* have MR act like M1, but clear leds */
+						lg_g710_plus_m_state = 0;
+						macro_buf[0] = '0';
+					} else
+						macro_buf[0] = (1 << lg_g710_plus_m_state) + '0';
+					lg_g710_plus_store_led_macro(&hdev->dev,(struct device_attribute *)NULL,macro_buf,2);
+				}
+			} else
+	            input_report_key(g710_data->input_dev, f_button_map[ (g710_plus_key_map[i] - 5) + 6 * lg_g710_plus_m_state ], BIT_AT(keys_pressed, i) != 0);
         }
     }
     input_sync(g710_data->input_dev);

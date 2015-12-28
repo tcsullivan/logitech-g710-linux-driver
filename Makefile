@@ -1,4 +1,4 @@
-SUBDIRS=src/kernel src/userspace
+SUBDIRS=src
 
 default:
 	for dir in $(SUBDIRS); do $(MAKE) -C $$dir $@; done
